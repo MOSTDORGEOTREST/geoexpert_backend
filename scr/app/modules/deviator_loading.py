@@ -24,17 +24,35 @@ from scipy.interpolate import make_interp_spline
 from scipy.interpolate import splev, splrep
 from scipy.signal import argrelextrema
 
+def deviator_loading_processing(strain: np.array, deviator: np.array) -> tuple:
+    """Функция поиска qf и E50
+            :argument strain: массив деформаций
+            :argument deviator: массив девиатора
+            :return qf и E50
+    """
+    qf = np.max(deviator)
+    imax = np.where(deviator > qf / 2)
+    imax = imax[0]
+    imin = imax - 1
 
-def create_deviation_curve(x, amplitude, val = (1, 1), points = False, borders = False, one_side = False, low_first_district = False):
+    E50 = (qf / 2) / (
+    np.interp(qf / 2, np.array([deviator[imin], deviator[imax]]), np.array([strain[imin], strain[imax]])))
+
+    return (E50, qf)
+
+def create_deviation_curve(x: np.array, amplitude: float, val: tuple['float', 'float'] = (1, 1),
+                           points: 'bool' = False, borders: 'bool' = False, one_side: 'bool' = False, low_first_district: 'bool' = False)-> np.array:
     """Возвращает рандомную кривую с размерностью, как x.
-    Входные параметры:  :param x: входной массив
+                        :param x: входной массив
                         :param amplitude: размах
                         :param val: значение в первой и последней точке
                         :param points: количество точек изгиба
                         :param borders: условие производной на границах. чтобы было 0 подаем 'zero_diff'
                         :param one_side: делает кривую со значениями больше 0. Подается True, False
                         :param low_first_district: задает начальный участок с меньшими значениями,
-                         чтобы не было видно скачка производной. Подается как число начальных участков"""
+                         чтобы не было видно скачка производной. Подается как число начальных участков
+                        :return deviation_curve: массив девиаций
+    """
 
     def random_value_in_array(x):
         """Возвращает рандомное значение в пределах массива"""
@@ -119,8 +137,12 @@ def create_deviation_curve(x, amplitude, val = (1, 1), points = False, borders =
 
     return deviation_curve
 
-def define_E50_qf(strain, deviator):
-    """Определение параметров qf и E50"""
+def define_E50_qf(strain: np.array, deviator: np.array)-> tuple:
+    """Функция поиска qf и E50
+            :argument strain: массив деформаций
+            :argument deviator: массив девиатора
+            :return qf и E50
+    """
     qf = np.max(deviator)
 
     imax = 0
@@ -140,10 +162,12 @@ def define_E50_qf(strain, deviator):
     return E50, qf
 
 
-def discrete_array(array, n_step):
+def discrete_array(array: np.array, n_step: float)-> np.array:
     """Функция делает массив дискретным по заданнаму шагу датчика
-    Входные параметры: array - массив данных
-    n_step - значение шага"""
+        :argument array - массив данных
+        :argument - значение шага
+        :return array - дискретизированный массив
+    """
     current_val = (array[0]//n_step)*n_step # значение массива с учетом шага в заданной точке
     for i in range(1, len(array)): # перебираем весь массив
         count_step = (array[i]-current_val)//n_step
@@ -152,7 +176,14 @@ def discrete_array(array, n_step):
     return array
 
 
-def deviator_loading_deviation1(strain, deviator, xc, amplitude):
+def deviator_loading_deviation1(strain: np.array, deviator: np.array, xc: float, amplitude: float)-> np.array:
+    """Функция кусочного наложения девиаций
+                :argument strain: массив деформаций
+                :argument deviator: массив девиатора
+                :argument xc: деформация пика
+                :argument deviator: амплитуда девиаций
+                :return массив девиаций
+    """
     # Добавим девиации после 0.6qf для кривой без пика
     qf = max(deviator)
 
@@ -251,82 +282,17 @@ def deviator_loading_deviation1(strain, deviator, xc, amplitude):
     return deviation_array
 
 
-def deviator_loading_deviation1_old(strain, deviator, xc, amplitude):
-    # Добавим девиации после 0.6qf для кривой без пика
-    qf = max(deviator)
-
-    devition_1 = amplitude * qf
-    devition_2 = amplitude * qf * 0.6
-
-    i_60, = np.where(deviator >= 0.51 * qf)
-    i_90, = np.where(deviator >= 0.98 * qf)
-    i_end, = np.where(strain >= 0.15)
-    i_xc, = np.where(strain >= xc)
-    if xc >= 0.14:  # без пика
-        try:
-            curve = create_deviation_curve(strain[i_60[0]:i_xc[0]], devition_1 / 2,
-                                           points=np.random.uniform(6, 15), borders="zero_diff",
-                                           low_first_district=1, one_side=True) + \
-                    create_deviation_curve(strain[i_60[0]:i_xc[0]], devition_1,
-                                           points=np.random.uniform(20, 30), borders="zero_diff",
-                                           low_first_district=1, one_side=True)
-            deviation_array = -np.hstack((np.zeros(i_60[0]),
-                                          curve,
-                                          np.zeros(len(strain) - i_xc[0])))
-        except IndexError:
-            deviation_array = np.zeros(len(strain))
-
-    else:
-
-        try:
-            i_xc1, = np.where(deviator[i_xc[0]:] <= qf - devition_2)
-            i_xc_m, = np.where(deviator >= qf - devition_1 * 2)
-            points_1 = round((xc) * 100)
-            if points_1 < 3:
-                points_1 = 3
-
-            curve_1 = create_deviation_curve(strain[i_60[0]:i_xc_m[0]], devition_1 * 1.5,
-                                             points=np.random.uniform(3, 4), val=(1, 0.1), borders="zero_diff",
-                                             low_first_district=1) + create_deviation_curve(
-                strain[i_60[0]:i_xc_m[0]], devition_1 / 2,
-                points=np.random.uniform(points_1, points_1 * 3), borders="zero_diff",
-                low_first_district=1)
-
-            points_2 = round((0.15 - xc) * 100)
-            if points_2 < 3:
-                points_2 = 3
-
-            devition_2 = ((deviator[i_xc[0]] - deviator[i_end[0]]) / 14) * (points_2 / 10)
-
-            curve_2 = create_deviation_curve(strain[i_xc[0] + i_xc1[0]:i_end[0]],
-                                             devition_2, val=(0.1, 1),
-                                             points=np.random.uniform(points_2, int(points_2 * 3)), borders="zero_diff",
-                                             low_first_district=2) + create_deviation_curve(
-                strain[i_xc[0] + i_xc1[0]:i_end[0]],
-                devition_2 / 3, val=(0.1, 1),
-                points=np.random.uniform(points_2 * 3, int(points_2 * 5)), borders="zero_diff",
-                low_first_district=2)
-            deviation_array = -np.hstack((np.zeros(i_60[0]),
-                                          curve_1, np.zeros(i_xc[0] - i_xc_m[0]),
-                                          np.zeros(i_xc1[0]),
-                                          curve_2,
-                                          np.zeros(len(strain) - i_end[0])))
-        except (ValueError, IndexError):
-            print("Ошибка девиаций девиатора")
-            deviation_array = -np.hstack((np.zeros(i_60[0]),
-                                          create_deviation_curve(strain[i_60[0]:i_90[0]], devition_1,
-                                                                 points=np.random.uniform(3, 6), borders="zero_diff",
-                                                                 low_first_district=1),
-                                          create_deviation_curve(strain[i_90[0]:i_end[0]], devition_2, val=(1, 0.1),
-                                                                 points=np.random.uniform(10, 15), borders="zero_diff",
-                                                                 low_first_district=3,
-                                                                 one_side=True),
-                                          np.zeros(len(strain) - i_end[0])))
-
-    return deviation_array
 
 
-def deviator_loading_deviation(strain, deviator, xc, amplitude):
+
+def deviator_loading_deviation2(strain: np.array, deviator: np.array, xc: float, amplitude: float)-> np.array:
+    """Функция кусочного наложения девиаций
+                    :argument strain: массив деформаций
+                    :argument deviator: массив девиатора
+                    :argument xc: деформация пика
+                    :argument deviator: амплитуда девиаций
+                    :return массив девиаций
+    """
     # Добавим девиации после 0.6qf для кривой без пика
     index_015, = np.where(strain >= 0.15)
     qf = np.max(deviator[:index_015[0]])
@@ -382,113 +348,17 @@ def deviator_loading_deviation(strain, deviator, xc, amplitude):
     return deviation_array
 
 
-def deviation_volume_strain1(x, x_given, xc, len_x_dilatacy, deviation=0.0015):
-    index_x_given, = np.where(x >= x_given)
-    n = xc / 0.15
-    index_x_start_dilatacy, = np.where(x >= (xc - len_x_dilatacy * 2))
-    index_x_end_dilatacy, = np.where(x >= (xc + len_x_dilatacy * 2))
-
-    if xc >= 0.14:
-        deviation_vs = np.hstack((np.zeros(index_x_given[0]),
-                                  create_deviation_curve(x[index_x_given[0]:], deviation * 2 * n,
-                                                         points=np.random.uniform(5, 10),
-                                                         val=(0.3, 1), borders='zero diff') + create_deviation_curve(
-                                      x[index_x_given[0]:],
-                                      deviation * 0.7 * n, points=np.random.uniform(15, 30),
-                                      val=(0.3, 1), borders='zero diff')))
-        return deviation_vs
-
-    if xc <= 0.03:
-        deviation_vs = np.hstack((np.zeros(index_x_given[0]),
-                                  create_deviation_curve(x[index_x_given[0]:], deviation * 2 * n,
-                                                         points=np.random.uniform(5, 10),
-                                                         val=(0.3, 1), borders='zero diff') + create_deviation_curve(
-                                      x[index_x_given[0]:],
-                                      deviation * 0.7 * n, points=np.random.uniform(15, 30),
-                                      val=(0.3, 1), borders='zero diff')))
-        return deviation_vs
-
-    try:
-        deviation_vs = np.hstack((np.zeros(index_x_given[0]),
-                                  create_deviation_curve(x[index_x_given[0]:index_x_start_dilatacy[0]],
-                                                         deviation * 2 * n, points=np.random.uniform(5, 10),
-                                                         val=(0.3, 1), borders='zero diff') + create_deviation_curve(
-                                      x[index_x_given[0]:index_x_start_dilatacy[0]],
-                                      deviation * 0.7 * n, points=np.random.uniform(15, 30),
-                                      val=(0.3, 1), borders='zero diff'),
-
-                                  np.zeros(len(x[index_x_start_dilatacy[0]:index_x_end_dilatacy[0] + 1])),
-                                  create_deviation_curve(x[index_x_end_dilatacy[0] + 1:], deviation, val=(0.3, 1),
-                                                         borders='zero diff')))
-        return deviation_vs
-
-    except (ValueError, IndexError):
-        deviation_vs = np.hstack((np.zeros(len(x[:index_x_given[0]])),
-                                  create_deviation_curve(x[index_x_given[0]:index_x_start_dilatacy[0]], deviation / 8,
-                                                         val=(1, 0.3), borders='zero diff'),
-                                  np.zeros(len(x[index_x_start_dilatacy[0]:index_x_end_dilatacy[0] + 1])),
-                                  create_deviation_curve(x[index_x_end_dilatacy[0] + 1:], deviation, val=(0.3, 1),
-                                                         borders='zero diff')))
-        return deviation_vs
-
-
-def deviation_volume_strain(x, x_given, xc, len_x_dilatacy, deviation=0.0015):
-    index_x_given, = np.where(x >= x_given)
-    n = 1
-    index_x_start_dilatacy, = np.where(x >= (xc - len_x_dilatacy * 2))
-    index_x_end_dilatacy, = np.where(x >= (xc + len_x_dilatacy * 2))
-    if xc <= 0.14:
-        def deviation_array(x, i_1, i_2, deviation_val, count_1=20, count_2=50):
-            points_count = (i_2 - i_1)
-            points_1 = int(points_count / count_1)
-            points_2 = int(points_count / count_2)
-
-            if (points_1 >= 3) and (points_2 >= 3):
-                array = deviation_val * create_deviation_curve(x[i_1: i_2], 1, points=points_1, val=(0.3, 1),
-                                                               borders='zero diff') + \
-                        deviation * 0.3 * create_deviation_curve(x[i_1: i_2], 1, points=points_2, val=(0.3, 1),
-                                                                 borders='zero diff')
-            elif (points_1 >= 3) and (points_2 < 3):
-                array = deviation_val * create_deviation_curve(x[i_1: i_2], 1, points=points_1, val=(0.3, 1),
-                                                               borders='zero diff')
-            else:
-                array = np.zeros(i_2 - i_1)
-
-            return array
-
-        try:
-            starn_puasson = np.zeros(index_x_given[0])
-            puasson_start_dilatacy = deviation_array(x, index_x_given[0], index_x_start_dilatacy[0], deviation / 2)
-            start_dilatacy_end_dilatacy = deviation_array(x, index_x_start_dilatacy[0], index_x_end_dilatacy[0],
-                                                          deviation / 10)
-            end_dilatacy_end = deviation_array(x, index_x_end_dilatacy[0], len(x), deviation)
-
-            deviation_vs = np.hstack(
-                (starn_puasson, puasson_start_dilatacy, start_dilatacy_end_dilatacy, end_dilatacy_end))
-        except IndexError:
-            deviation_vs = np.hstack((np.zeros(index_x_given[0]),
-                                      deviation * 2 * n * create_deviation_curve(x[index_x_given[0]:], 1,
-                                                                                 points=np.random.uniform(5, 10),
-                                                                                 val=(0.3, 1), borders='zero diff') +
-                                      deviation * 0.7 * n * create_deviation_curve(
-                                          x[index_x_given[0]:], 1, points=np.random.uniform(15, 30),
-                                          val=(0.3, 1), borders='zero diff')))
-
-        return deviation_vs
-    else:
-        deviation_vs = np.hstack((np.zeros(index_x_given[0]),
-                                  deviation * 2 * n * create_deviation_curve(x[index_x_given[0]:], 1,
-                                                                             points=np.random.uniform(5, 10),
-                                                                             val=(0.3, 1), borders='zero diff') +
-                                  deviation * 0.7 * n * create_deviation_curve(
-                                      x[index_x_given[0]:], 1, points=np.random.uniform(15, 30),
-                                      val=(0.3, 1), borders='zero diff')))
-        return deviation_vs
-
-
 # Девиаторное нагружение
-def params_gip_exp_tg(x, e50, qf, x50, xc, qocr):
-    '''возвращает коэффициенты гиперболы, экспоненты и тангенса'''
+def params_gip_exp_tg(x: np.array, e50: float, qf: float, x50: float, xc: float, qocr: float) -> tuple:
+    """Функция возвращающая коэффициенты гиперболы, экспоненты и тангенса
+                    :argument x: массив деформаций
+                    :argument e50: модуль деформации
+                    :argument qf: девиатор
+                    :argument x50: деформация в 50 процентах нагружения
+                    :argument xc: деформация пика
+                    :argument qocr: девиатор переуплотнения
+                    :return коэффициенты гиперболы, экспоненты и тангенса
+    """
     kp = np.linspace(0, 1, len(x))  # kp - коэффициент влияния на k, учитывающий переуплотнение qocr
 
     for i in range(len(x)):
@@ -585,14 +455,35 @@ def params_gip_exp_tg(x, e50, qf, x50, xc, qocr):
     return a1_g, k1_g, a1_e, k1_e, a1_t, k1_t, kp, xocr
 
 
-def hevisaid(x, sdvig, delta_x):
-    ''' возвращет функцию Хевисайда, которая задает коэффициент влияния kp'''
+def hevisaid(x: np.array, sdvig: float, delta_x: float):
+    """Функция возвращающая функцию Хевисайда, которая задает коэффициент влияния kp
+                        :argument x: массив деформаций
+                        :argument sdvig: сдвиг по оси x
+                        :argument delta_x: параметр отвечающей за резкость
+                        :return массив оординат функции хевисайда
+    """
     return 1. / (1. + np.exp(-2 * 10 / delta_x * (x - sdvig)))
 
 
-def gip_and_exp_or_tg(x, e50, x50, qf, a1_g, k1_g, a1_e, k1_e, a1_t, k1_t, kp, k, qocr,
-                      xocr):
-    '''сумма функций гиперболы и экспоненты с учетом коэффициентов влияния'''
+def gip_and_exp_or_tg(x: float, e50: float, x50: float, qf: float, a1_g: float, k1_g: float,
+                      a1_e: float, k1_e: float, a1_t: float, k1_t: float, kp: float, k: float, qocr: float, xocr: float):
+    """Функция возвращающая сумму функций гиперболы и экспоненты с учетом коэффициентов влияния
+                        :argument x: значение деформации
+                        :argument e50: модуль деформации
+                        :argument x50: деформация в 50 процентах нагружения
+                        :argument qf: девиатор
+                        :argument a1_g: амплитуда функции гиперболы
+                        :argument k1_g: коэффициент резкости функции гиперболы
+                        :argument a1_e: амплитуда функции экспоненты
+                        :argument k1_e: коэффициент резкости функции экспоненты
+                        :argument a1_t: амплитуда функции тангенса
+                        :argument k1_t: коэффициент резкости функции тангенса
+                        :argument kp: коэффициент влияния функкций для переуплотнение
+                        :argument k: коэффициент влияния гиперболы и экспоненты
+                        :argument qocr: девиатор переуплотнения
+                        :argument xocr: деформация переуплотнения
+                        :return коэффициенты гиперболы, экспоненты и тангенса
+    """
 
     ret = ((kp * k) * (a1_g * x / (1 + k1_g * x)) + (
             (1. - kp * k) * (-a1_e * (np.exp(-k1_e * x) - 1))))  # сумма гиперболы и экспоненты
@@ -622,9 +513,17 @@ def gip_and_exp_or_tg(x, e50, x50, qf, a1_g, k1_g, a1_e, k1_e, a1_t, k1_t, kp, k
     return ret
 
 
-def cos_par(x, e50, qf, x50, xc, hlow):
-    '''возвращает функцию косинуса
-     и параболы для участка x50 qf'''
+def cos_par(x: float, e50: float, qf: float, x50: float, xc: float, hlow: float) -> float:
+    """Функция возвращающая функцию косинуса
+     и параболы для участка x50 qf
+                    :argument x: значение деформации
+                    :argument e50: модуль деформации
+                    :argument qf: девиатор
+                    :argument x50: деформация в 50 процентах нагружения
+                    :argument xc: деформация пика
+                    :argument hlow: коэффициент понижающий значение косинуса, так чтоб не выходить за qf
+                    :return значение функции косинуса
+    """
 
     sm = (xc - x50) / 2  # смещение
     # коэффицент учитывающий влияние на высоту функции при различных значениях e50
@@ -656,23 +555,41 @@ def cos_par(x, e50, qf, x50, xc, hlow):
     return cos_par
 
 
-def gaus(x, qf, xc, x2, qf2):
-    '''функция Гаусса для участка x>xc'''
+def gaus(x: float, qf: float, xc: float, x2: float, qf2: float) -> float:
+    """Функция возвращающая функцию Гаусса для участка x>xc
+                        :argument x: значение деформации
+                        :argument qf: девиатор
+                        :argument xc: деформация пика
+                        :argument x2: деформация в начале участка падения прочности
+                        :argument qf2: остаточная прочность
+                        :return значение функции Гаусса
+    """
     a_gaus = qf - qf2  # высота функции Гаусса
     k_gaus = (-1) * np.log(0.1 / a_gaus) / ((x2 - xc) ** 2)  # резкость функции Гаусаа
     # (считается из условия равенства заданной точности в точке х50
     return a_gaus * (np.exp(-k_gaus * ((x - xc) ** 2))) + qf2
 
 
-def parab(x, qf, xc, x2, qf2):
-    '''функция Гаусса для участка x>xc'''
+def parab(x: float, qf: float, xc: float, x2: float, qf2: float) -> float:
+    """Функция возвращающая функцию параболы для участка x>xc
+                        :argument x: значение деформации
+                        :argument qf: девиатор
+                        :argument xc: деформация пика
+                        :argument x2: деформация в начале участка падения прочности
+                        :argument qf2: остаточная прочность
+                        :return значение функции Гаусса
+    """
     k_par = -((qf2 - qf) / (x2 - xc) ** 2)
     return -k_par * ((x - xc) ** 2) + qf
 
 
-def smoothness_condition(qf, x50):
-    '''возвращает предельное значение xc при котором возможно
-    построение заданной функции'''
+def smoothness_condition(qf: float, x50: float) -> float:
+    """Функция возвращающая предельное значение xc при котором возможно
+    построение заданной функции
+                        :argument qf: девиатор
+                        :argument x50: деформация в 50 процентах нагружения
+                        :return x_lim: предельное значение xc
+    """
     k_lim = qf / (2 * x50)
     x_lim = (qf / k_lim)
 
@@ -681,8 +598,17 @@ def smoothness_condition(qf, x50):
     return x_lim
 
 
-def form_kp(x: float, qf, k, xocr, xc, qocr, x50):
-    '''вовзращает коэффициент влияния kp'''
+def form_kp(x: float, qf: float, k: float, xocr: float, xc: float, qocr: float, x50: float) -> float:
+    """Функция возвращающая коэффициенты коэффициент влияния kp
+                        :argument x: массив деформаций
+                        :argument qf: девиатор
+                        :argument k: коэффициент влияния гиперболы и экспоненты
+                        :argument xocr: деформация переуплотнения
+                        :argument xc: деформация пика
+                        :argument qocr: девиатор переуплотнения
+                        :argument x50: деформация в 50 процентах нагружения
+                        :return kp: коэффициент влияния функкций для переуплотнение
+    """
     kp = 1.
     if qocr > qf / 2.:  # если qsr на участке от qf / 2
 
@@ -720,8 +646,17 @@ def form_kp(x: float, qf, k, xocr, xc, qocr, x50):
     return kp
 
 
-def sensor_accuracy(x, y, qf, x50, xc):
-    '''возвразщает зашумеленную функцию без шума в характерных точках'''
+def sensor_accuracy(x: np.array, y: np.array, qf: float, x50: float, xc: float):
+    """Функция возвращающая зашумеленную функцию без шума в характерных точках
+                            :argument x: массив деформаций
+                            :argument y: массив девиатора
+                            :argument qf: девиатор
+                            :argument x50: деформация в 50 процентах нагружения
+                            :argument xc: деформация пика
+                            :return y_res: зашумленный массив без шума в характерных точках
+        """
+
+
 
     x = np.asarray(x)
     y = np.asarray(y)
@@ -783,159 +718,16 @@ def sensor_accuracy(x, y, qf, x50, xc):
     return y_res
 
 
-def interpolated_intercepts(x, y1, y2):
-    """Find the intercepts of two curves, given by the same x data"""
-
-    def intercept(point1, point2, point3, point4):
-        """find the intersection between two lines
-        the first line is defined by the line between point1 and point2
-        the first line is defined by the line between point3 and point4
-        each point is an (x,y) tuple.
-
-        So, for example, you can find the intersection between
-        intercept((0,0), (1,1), (0,1), (1,0)) = (0.5, 0.5)
-
-        Returns: the intercept, in (x,y) format
-        """
-
-        def line(p1, p2):
-            A = (p1[1] - p2[1])
-            B = (p2[0] - p1[0])
-            C = (p1[0] * p2[1] - p2[0] * p1[1])
-            return A, B, -C
-
-        def intersection(L1, L2):
-            D = L1[0] * L2[1] - L1[1] * L2[0]
-            Dx = L1[2] * L2[1] - L1[1] * L2[2]
-            Dy = L1[0] * L2[2] - L1[2] * L2[0]
-
-            x = Dx / D
-            y = Dy / D
-            return x, y
-
-        L1 = line([point1[0], point1[1]], [point2[0], point2[1]])
-        L2 = line([point3[0], point3[1]], [point4[0], point4[1]])
-
-        R = intersection(L1, L2)
-
-        return R
-
-    idxs = np.argwhere(np.diff(np.sign(y1 - y2)) != 0)
-
-    xcs = []
-    ycs = []
-
-    for idx in idxs:
-        xc, yc = intercept((x[idx], y1[idx]), ((x[idx + 1], y1[idx + 1])), ((x[idx], y2[idx])),
-                           ((x[idx + 1], y2[idx + 1])))
-        xcs.append(xc)
-        ycs.append(yc)
-    return np.array(xcs), np.array(ycs)
-
-def bezier_curve(p1_l1, p2_l1, p1_l2, p2_l2, node1, node2, x_grid):
-    """
-    Требуется модуль: from scipy.optimize import fsolve
-    Функция построения кривой Безье на оссновании двух прямых,
-    задаваемых точками 'point_line' типа [x,y],
-    на узлах node типа [x,y]
-    с построением промежуточного узла в точке пересечения поданных прямых.
-    Функция возвращает значения y=f(x) на сетке по оси Ox.
-
-    Пример:
-    Соединяем две прямые от точки [x_given,y_given] до точки [x[index_x_start[0]], y_start[0]]
-    xgi, = np.where(x > x_given) # некая точка после которой нужно переходить к кривой безье
-    y_Bezier_line = bezier_curve([0,0],[x_given,y_given], #Первая и Вторая точки первой прямой
-                                 [x_given, k * x_given + b], #Первая точка второй прямой (k и b даны)
-                                 [x[index_x_start[0]],y_start[0]], #Вторая точка второй прямой
-                                 [x_given, y_given], #Первый узел (здесь фактически это 2 точка первой прямой)
-                                 [x[index_x_start[0]], y_start[0]], #Второй узел
-                                                                # (здесь фактически это 2 точка второй прямой)
-                                 x[xgi[0]:index_x_start[0]]
-                                 )
-
-    :param p1_l1: Первая точка первой прямой [x,y]
-    :param p2_l1: Вторая точка первой прямой [x,y]
-    :param p1_l2: Первая точка второй прямой [x,y]
-    :param p2_l2: Вторая точка второй прямой [x,y]
-    :param node1: Первый узел [x,y]
-    :param node2: Второй узел [x,y]
-    :param x_grid: Сетка по Ох на которой необходимо посчитать f(x)
-    :return: Значения y=f(x) на сетке x_grid
-    """
-
-    def bernstein_poly(i, n, t):
-        """
-         Полином Бернштейна стпени n, i - функция t
-        """
-        return comb(n, i) * (t ** i) * (1 - t) ** (n - i)
-
-    def bezier_curve_local(nodes, n_times=1000):
-        """
-        На основании набора узлов возвращает
-        кривую Безье определяемую узлами
-        Точки задаются в виде:
-           [ [1,1],
-             [2,3],
-              [4,5], ..[Xn, Yn] ]
-        nTimes - число точек для вычисления значений
-        """
-
-        n_points = len(nodes)
-        x_points = np.array([p[0] for p in nodes])
-        y_points = np.array([p[1] for p in nodes])
-
-        t = np.linspace(0.0, 1.0, n_times)
-
-        polynomial_array = np.array([bernstein_poly(i, n_points - 1, t) for i in range(0, n_points)])
-
-        x_values_l = np.dot(x_points, polynomial_array)
-        y_values_l = np.dot(y_points, polynomial_array)
-        return x_values_l, y_values_l
-
-    def intersect(xp1, yp1, xp2, yp2, xp3, yp3, xp4, yp4):
-        """
-        Функция пересечения двух прямых, заданных точками
-        :param xp1: x точки 1 на прямой 1
-        :param yp1: y точки 1 на прямой 1
-        :param xp2: x точки 2 на прямой 1
-        :param yp2: y точки 2 на прямой 1
-        :param xp3: x точки 1 на прямой 2
-        :param yp3: y точки 1 на прямой 2
-        :param xp4: x точки 2 на прямой 2
-        :param yp4: y точки 2 на прямой 2
-        :return: точка пересечения прямых [x,y]
-        """
-
-        def line(xp1, yp1, xp2, yp2):
-            k = (yp2 - yp1) / (xp2 - xp1)
-            b = yp1 - k * xp1
-            return k, b
-
-        kl1, bl1 = line(xp1, yp1, xp2, yp2)
-        kl2, bl2 = line(xp3, yp3, xp4, yp4)
-        x_p_inter = (bl1 - bl2) / (kl2 - kl1)
-        y_p_inter = kl1 * x_p_inter + bl1
-        return x_p_inter, y_p_inter
-
-    # Определяем точки пересечения прямых
-    xl1, yl1 = intersect(p1_l1[0], p1_l1[1],
-                         p2_l1[0], p2_l1[1],
-                         p1_l2[0], p1_l2[1],
-                         p2_l2[0], p2_l2[1])
-
-    # Строим кривую Безье
-    x_values, y_values = bezier_curve_local([node1, [xl1, yl1], node2], n_times=len(x_grid))
-
-    # Адаптация кривой под равномерный шаг по х
-    bezier_spline = interpolate.make_interp_spline(x_values, y_values, k=1, bc_type=None)
-    y_values = bezier_spline(x_grid)
-
-    return y_values
-
-
-def cos_ocr(x, y, qf, qocr, xc):
-    '''возвращает функцию косинуса
-     и параболы для участка x50 qf'''
+def cos_ocr(x: np.array, y: np.array, qf: float, qocr: float, xc: float) -> np.array:
+    """Функция возвращающая функцию косинуса
+     и параболы для участка x50 qf
+                            :argument x: массив деформаций
+                            :argument x: массив девиатора
+                            :argument qf: девиатор
+                            :argument qocr: девиатор переуплотнения
+                            :argument xocr: деформация переуплотнения
+                            :return возвращает массив косинуса и параболы
+     """
 
     index_xocr, = np.where(y > qocr)
     xocr = x[index_xocr[0]]
@@ -1027,7 +819,23 @@ def cos_ocr(x, y, qf, qocr, xc):
     return cos_par
 
 
-def dev_loading(qf, e50, x50, xc, x2, qf2, gaus_or_par, amount_points, hyp_ratio=None):
+def dev_loading(qf: float, e50: float, x50: float, xc: float, x2: float,
+                qf2: float, gaus_or_par: bool, amount_points: float, hyp_ratio: 'float'=None) -> float:
+    """Функция возаращающая кусочную функцию: на участкe [0,xc]-сумма функций гиперболы и
+    (экспоненты или тангенса) и кусочной функции синуса и парболы
+    на участке [xc...]-половина функции Гаусса или параболы
+                            :argument qf: девиатор
+                            :argument e50: модуль деформации
+                            :argument x50: деформация в 50 процентах нагружения
+                            :argument xc: деформация пика
+                            :argument x2: деформация в начале участка падения прочности
+                            :argument qf2: остаточная прочность
+                            :argument gaus_or_par: флаг для выбора вида участка падения прочности
+                            :argument amount_points: количество точек кривой
+                            :argument hyp_ratio: коэффициент влияния гиперболы или экспоненты
+                            :return массив значений функции девиаторного нагружения
+    """
+
     qocr = 0  # !!!
     '''кусочная функция: на участкe [0,xc]-сумма функций гиперболы и
     (экспоненты или тангенса) и кусочной функции синуса и парболы
@@ -1148,7 +956,14 @@ def dev_loading(qf, e50, x50, xc, x2, qf2, gaus_or_par, amount_points, hyp_ratio
     return xold, xnew, y_smooth, qf, xc, x2, qf2, e50
 
 
-def curve(qf, e50, **kwargs):
+def curve(qf: float, e50: float, **kwargs) -> float:
+    """Функция возвращающая функцию девиаторного нагружения
+                                :argument qf: девиатор
+                                :argument e50: модуль деформации
+                                :return x массив деформаций в функции девиаторного нагружения
+                                :return y массив значений функции девиаторного нагружения
+    """
+
     try:
         kwargs["xc"]
     except KeyError:
@@ -1322,7 +1137,7 @@ def curve(qf, e50, **kwargs):
             y += deviator_loading_deviation1(x, y, xc, amplitude=(amplitude_1, amplitude_2, amplitude_3))
             break
 
-        y += deviator_loading_deviation(x, y, xc, amplitude=(amplitude_1, amplitude_2, amplitude_3))
+        y += deviator_loading_deviation2(x, y, xc, amplitude=(amplitude_1, amplitude_2, amplitude_3))
 
 
         y = sensor_accuracy(x, y, qf, x50, xc)  # шум на кривой без петли
@@ -1402,7 +1217,11 @@ def curve(qf, e50, **kwargs):
     return x, y
 
 def define_xc_qf_E(qf, E50):
-    """Функция определяет координату пика в зависимости от максимального девиатора и модуля"""
+    """Функция определяет координату пика в зависимости от максимального девиатора и модуля
+                            :argument qf: девиатор
+                            :argument E50: модуль деформации
+                            :return xc: значение деформации пика
+    """
     try:
         k = E50 / qf
     except (ValueError, ZeroDivisionError):
@@ -1419,8 +1238,10 @@ def define_xc_qf_E(qf, E50):
 
 
 def residual_strength_param_from_xc(xc):
-    """Функция находит параметр падения остатичной прочности в зависимости от пика"""
-
+    """Функция находит параметр падения остатичной прочности в зависимости от пика
+                            :argument xc: значение деформации пика
+                            :return param: параметр падения остатичной прочности
+    """
     param = 0.33 - 1.9 * (0.15 - xc)
 
     return param
@@ -1428,7 +1249,14 @@ def residual_strength_param_from_xc(xc):
 
 
 def ptgeoexpert_deviator_loading(qf, E50, **kwargs):
-
+    """Функция возвращающая функцию девиаторного нагружения с заданными параметрами
+                                :argument qf: девиатор
+                                :argument peak: флаг отвечающий за наличие пика, если хс<0.15, peak=False, то кривая будет без пика
+                                :argument fail_strain: значение деформации разрушения, если его нет, определяется автоматически. Пика не будет если подать peak=False
+                                :argument residual_strength: остаточная прочность
+                                :return x массив деформаций в функции девиаторного нагружения
+                                :return y массив значений функции девиаторного нагружения
+    """
     try:
         kwargs["peak"]
     except KeyError:
@@ -1449,11 +1277,15 @@ def ptgeoexpert_deviator_loading(qf, E50, **kwargs):
         kwargs["residual_strength"]
     except KeyError:
         if fail_strain != 0.15:
-            kwargs["residual_strength"] = np.random(0.7, 0.8)*qf
+            kwargs["residual_strength"] = np.random.uniform(0.7, 0.8)*qf
         else:
-            kwargs["residual_strength"] = 0.95
+            kwargs["residual_strength"] = 0.95*qf
 
     residual_strength = kwargs.get('residual_strength')
+
+
+    if peak == False:
+        fail_strain = 0.15
 
     if is_defined_fail_strain and fail_strain <= 0.14:
         fail_strain *= np.random.uniform(0.8, 1.05)
@@ -1466,7 +1298,6 @@ def ptgeoexpert_deviator_loading(qf, E50, **kwargs):
 
     residual_strength_param = residual_strength_param_from_xc(fail_strain)*np.random.uniform(0.8, 1.2)
 
-    residual_strength = residual_strength * qf
 
     deviations_amplitude = [0.04, 0.02, 0.01, True]
 
@@ -1489,6 +1320,13 @@ def ptgeoexpert_deviator_loading(qf, E50, **kwargs):
                  qocr=0,
                  amplitude=deviations_amplitude,
                  hyp_ratio=hyp_ratio)
+
+    print('qf', qf, 'E50', E50,
+                 'xc', fail_strain,
+                 'x2', residual_strength_param,
+                 'qf2', residual_strength,
+                 'amplitude', deviations_amplitude,
+                 'hyp_ratio', hyp_ratio)
     return x, y
 
 
@@ -1506,8 +1344,8 @@ if __name__ == '__main__':
     rcParams['axes.edgecolor'] = 'black'
     plt.grid(axis='both', linewidth='0.6')
 
-    x, y = curve(300, 30000, xc=0.03)
-    print(residual_strength(0.75, 0.9, 500))
+    x, y = ptgeoexpert_deviator_loading(132, 16500, fail_strain=0.07)
+
     plt.plot(x, y)
     plt.legend()
     plt.show()
